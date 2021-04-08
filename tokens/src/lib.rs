@@ -40,7 +40,7 @@
 pub use crate::imbalances::{NegativeImbalance, PositiveImbalance};
 
 use frame_support::{
-	ensure,
+	ensure, log,
 	pallet_prelude::*,
 	traits::{
 		BalanceStatus as Status, Currency as PalletCurrency, ExistenceRequirement, Get, Imbalance,
@@ -381,10 +381,10 @@ impl<T: Config> Pallet<T> {
 				// If existed before, decrease account provider.
 				// Ignore the result, because if it failed means that these’s remain consumers,
 				// and the account storage in frame_system shouldn't be repeaded.
-				let _ = frame_system::Module::<T>::dec_providers(who);
+				let _ = frame_system::Pallet::<T>::dec_providers(who);
 			} else if !existed && exists {
 				// if new, increase account provider
-				frame_system::Module::<T>::inc_providers(who);
+				frame_system::Pallet::<T>::inc_providers(who);
 			}
 
 			if let Some(dust_amount) = handle_dust {
@@ -446,17 +446,17 @@ impl<T: Config> Pallet<T> {
 			<Locks<T>>::remove(who, currency_id);
 			if existed {
 				// decrease account ref count when destruct lock
-				frame_system::Module::<T>::dec_consumers(who);
+				frame_system::Pallet::<T>::dec_consumers(who);
 			}
 		} else {
 			<Locks<T>>::insert(who, currency_id, locks);
 			if !existed {
 				// increase account ref count when initialize lock
-				if frame_system::Module::<T>::inc_consumers(who).is_err() {
+				if frame_system::Pallet::<T>::inc_consumers(who).is_err() {
 					// No providers for the locks. This is impossible under normal circumstances
 					// since the funds that are under the lock will themselves be stored in the
 					// account and therefore will need a reference.
-					frame_support::debug::warn!(
+					log::warn!(
 						"Warning: Attempt to introduce lock consumer reference, yet no providers. \
 						This is unexpected but should be safe."
 					);

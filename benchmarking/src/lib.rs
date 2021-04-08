@@ -844,8 +844,8 @@ macro_rules! impl_benchmark {
 						>::instance(&selected_benchmark, c, verify)?;
 
 						// Set the block number to at least 1 so events are deposited.
-						if $crate::Zero::is_zero(&frame_system::Module::<$runtime>::block_number()) {
-							frame_system::Module::<$runtime>::set_block_number(1u32.into());
+						if $crate::Zero::is_zero(&frame_system::Pallet::<$runtime>::block_number()) {
+							frame_system::Pallet::<$runtime>::set_block_number(1u32.into());
 						}
 
 						// Commit the externalities to the database, flushing the DB cache.
@@ -859,7 +859,7 @@ macro_rules! impl_benchmark {
 							closure_to_benchmark()?;
 						} else {
 							// Time the extrinsic logic.
-							frame_support::debug::trace!(
+							frame_support::log::trace!(
 								target: "benchmark",
 								"Start Benchmark: {:?}", c
 							);
@@ -872,12 +872,12 @@ macro_rules! impl_benchmark {
 							let elapsed_extrinsic = finish_extrinsic - start_extrinsic;
 							// Commit the changes to get proper write count
 							$crate::benchmarking::commit_db();
-							frame_support::debug::trace!(
+							frame_support::log::trace!(
 								target: "benchmark",
 								"End Benchmark: {} ns", elapsed_extrinsic
 							);
 							let read_write_count = $crate::benchmarking::read_write_count();
-							frame_support::debug::trace!(
+							frame_support::log::trace!(
 								target: "benchmark",
 								"Read/Write Count {:?}", read_write_count
 							);
@@ -990,8 +990,8 @@ macro_rules! impl_benchmark_test {
 					>::instance(&selected_benchmark, &c, true)?;
 
 					// Set the block number to at least 1 so events are deposited.
-					if $crate::Zero::is_zero(&frame_system::Module::<$runtime>::block_number()) {
-						frame_system::Module::<$runtime>::set_block_number(1u32.into());
+					if $crate::Zero::is_zero(&frame_system::Pallet::<$runtime>::block_number()) {
+						frame_system::Pallet::<$runtime>::set_block_number(1u32.into());
 					}
 
 					// Run execution + verification
