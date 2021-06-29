@@ -4,11 +4,7 @@
 
 use super::*;
 use codec::{Decode, Encode};
-use frame_support::{
-	parameter_types,
-	traits::{OnFinalize, OnInitialize},
-	weights::Weight,
-};
+use frame_support::{parameter_types, weights::Weight};
 use frame_system::{ensure_root, ensure_signed, EnsureRoot};
 use sp_core::H256;
 use sp_runtime::{
@@ -125,7 +121,7 @@ impl AsOriginId<Origin, OriginCaller> for MockAsOriginId {
 	}
 	fn check_dispatch_from(&self, origin: Origin) -> DispatchResult {
 		ensure_root(origin.clone()).or_else(|_| {
-			if let OriginCaller::authority(ref sign) = origin.caller() {
+			if let OriginCaller::Authority(ref sign) = origin.caller() {
 				if sign.origin == Box::new(Origin::root().caller().clone()) {
 					return Ok(());
 				} else {

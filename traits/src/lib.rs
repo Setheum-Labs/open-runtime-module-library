@@ -22,7 +22,6 @@ pub use nft::NFT;
 pub use price::{DefaultPriceProvider, PriceProvider};
 pub use rewards::RewardHandler;
 
-pub mod account;
 pub mod arithmetic;
 pub mod auction;
 pub mod currency;
@@ -81,8 +80,4 @@ impl<T> Handler<T> for Tuple {
 		for_tuples!( #( Tuple::handle(t); )* );
 		Ok(())
 	}
-}
-
-pub trait Contains<T> {
-	fn contains(t: &T) -> bool;
 }
