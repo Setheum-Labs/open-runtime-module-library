@@ -39,10 +39,13 @@ use xcm::v0::prelude::*;
 use xcm_executor::traits::WeightBounds;
 
 pub use module::*;
-use orml_traits::location::{Parse, Reserve};
+use orml_traits::{
+	location::{Parse, Reserve},
+	XcmTransfer,
+};
 
-// mod mock;
-// mod tests;
+mod mock;
+mod tests;
 
 enum TransferKind {
 	/// Transfer self reserve asset.
@@ -89,6 +92,13 @@ pub mod module {
 
 		/// Means of measuring the weight consumed by an XCM message locally.
 		type Weigher: WeightBounds<Self::Call>;
+
+		/// Base XCM weight.
+		///
+		/// The actually weight for an XCM message is `T::BaseXcmWeight +
+		/// T::Weigher::weight(&msg)`.
+		#[pallet::constant]
+		type BaseXcmWeight: Get<Weight>;
 	}
 
 	#[pallet::event]
@@ -140,7 +150,7 @@ pub mod module {
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
-			if amount == Zero::zero() {
+			if amount.is_zero() {
 				return Ok(());
 			}
 
@@ -151,10 +161,10 @@ pub mod module {
 				amount: amount.into(),
 			};
 
-			let maybe_xcm_err = with_xcm_execution_transaction(|| {
+			let outcome = with_xcm_execution_transaction(|| {
 				Self::do_transfer_multiasset(who.clone(), asset, dest.clone(), dest_weight)
 			})?;
-			if let Some(xcm_err) = maybe_xcm_err {
+			if let Err(xcm_err) = outcome.ensure_complete() {
 				Self::deposit_event(Event::<T>::TransferFailed(who, currency_id, amount, dest, xcm_err));
 			} else {
 				Self::deposit_event(Event::<T>::Transferred(who, currency_id, amount, dest));
@@ -177,10 +187,10 @@ pub mod module {
 				return Ok(());
 			}
 
-			let maybe_xcm_err = with_xcm_execution_transaction(|| {
+			let outcome = with_xcm_execution_transaction(|| {
 				Self::do_transfer_multiasset(who.clone(), asset.clone(), dest.clone(), dest_weight)
 			})?;
-			if let Some(xcm_err) = maybe_xcm_err {
+			if let Err(xcm_err) = outcome.ensure_complete() {
 				Self::deposit_event(Event::<T>::TransferredMultiAssetFailed(who, asset, dest, xcm_err));
 			} else {
 				Self::deposit_event(Event::<T>::TransferredMultiAsset(who, asset, dest));
@@ -215,13 +225,12 @@ pub mod module {
 
 			let origin_location = T::AccountIdToMultiLocation::convert(who);
 			let weight = T::Weigher::weight(&mut msg).map_err(|()| Error::<T>::UnweighableMessage)?;
-			let outcome = T::XcmExecutor::execute_xcm_in_credit(origin_location, msg, weight, weight);
-			let maybe_xcm_err: Option<XcmError> = match outcome {
-				Outcome::Complete(_w) => Option::None,
-				Outcome::Incomplete(_w, err) => Some(err),
-				Outcome::Error(err) => Some(err),
-			};
-			Ok(maybe_xcm_err)
+			Ok(T::XcmExecutor::execute_xcm_in_credit(
+				origin_location,
+				msg,
+				weight,
+				weight,
+			))
 		}
 
 		fn transfer_self_reserve_asset(
@@ -296,13 +305,13 @@ pub mod module {
 
 		fn is_zero_amount(asset: &MultiAsset) -> bool {
 			if let MultiAsset::ConcreteFungible { id: _, amount } = asset {
-				if *amount == Zero::zero() {
+				if amount.is_zero() {
 					return true;
 				}
 			}
 
 			if let MultiAsset::AbstractFungible { id: _, amount } = asset {
-				if *amount == Zero::zero() {
+				if amount.is_zero() {
 					return true;
 				}
 			}
@@ -376,7 +385,7 @@ pub mod module {
 						}
 					}
 				};
-				T::Weigher::weight(&mut msg).map_or(Weight::max_value(), |w| 100_000_000 + w)
+				T::Weigher::weight(&mut msg).map_or(Weight::max_value(), |w| T::BaseXcmWeight::get().saturating_add(w))
 			} else {
 				0
 			}
@@ -395,17 +404,53 @@ pub mod module {
 			}
 		}
 	}
+
+	impl<T: Config> XcmTransfer<T::AccountId, T::Balance, T::CurrencyId> for Pallet<T> {
+		fn transfer(
+			who: T::AccountId,
+			currency_id: T::CurrencyId,
+			amount: T::Balance,
+			dest: MultiLocation,
+			dest_weight: Weight,
+		) -> XcmExecutionResult {
+			if amount.is_zero() {
+				return Ok(Outcome::Complete(Weight::zero()));
+			}
+			let id: MultiLocation =
+				T::CurrencyIdConvert::convert(currency_id).ok_or(Error::<T>::NotCrossChainTransferableCurrency)?;
+			let asset = MultiAsset::ConcreteFungible {
+				id,
+				amount: amount.into(),
+			};
+
+			with_xcm_execution_transaction(|| Self::do_transfer_multiasset(who, asset, dest, dest_weight))
+		}
+
+		fn transfer_multi_asset(
+			who: T::AccountId,
+			asset: MultiAsset,
+			dest: MultiLocation,
+			dest_weight: Weight,
+		) -> XcmExecutionResult {
+			if Self::is_zero_amount(&asset) {
+				return Ok(Outcome::Complete(Weight::zero()));
+			}
+
+			with_xcm_execution_transaction(|| Self::do_transfer_multiasset(who, asset, dest, dest_weight))
+		}
+	}
 }
 
-type XcmExecutionResult = sp_std::result::Result<Option<XcmError>, DispatchError>;
+type XcmExecutionResult = sp_std::result::Result<Outcome, DispatchError>;
 
 /// Only commit storage if no `DispatchError` and no `XcmError`, else roll back.
 fn with_xcm_execution_transaction(f: impl FnOnce() -> XcmExecutionResult) -> XcmExecutionResult {
 	with_transaction(|| {
 		let res = f();
-		match res {
-			Ok(ref err) if err.is_none() => TransactionOutcome::Commit(res),
-			_ => TransactionOutcome::Rollback(res),
+		if let Ok(Outcome::Complete(_)) = res {
+			TransactionOutcome::Commit(res)
+		} else {
+			TransactionOutcome::Rollback(res)
 		}
 	})
 }
